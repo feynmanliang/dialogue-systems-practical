@@ -1,0 +1,114 @@
+\documentclass[a4paper,oneside,reqno]{amsart}
+\usepackage{pdfpages} % to include cover sheet
+
+\input{../../../cambridge-macros.tex}
+
+%    Set assignment information here
+\newcommand{\authorname}{Feynman Liang}
+\newcommand{\coursename}{MLSALT 9: Statistical Spoken Dialogue Systems}
+\newcommand{\assignmentname}{Practical 1}
+
+\begin{document}
+
+%\includepdf[noautoscale]{MLSALT_Coversheet.pdf}
+
+\title{\coursename\\\assignmentname}
+
+\author{\authorname}
+\date{\today}
+
+\maketitle
+
+\begin{enumerate}
+  \item The baseline tracker achieves performance:
+\begin{verbatim}
+                                    featured metrics
+--------------------------------------------------------------------
+              |   Joint Goals   |    Requested    |      Method    |
+--------------------------------------------------------------------
+Accuracy      |    0.5686546    |    0.9162437    |    0.8529820   |
+l2            |    0.8344502    |    0.1204444    |    0.2560611   |
+roc.v2_ca05   |    0.0000000    |    0.6066482    |    0.0016260   |
+\end{verbatim}
+
+In contrast, the focus dialogue state tracker achieves performance:
+\begin{verbatim}
+
+                                    featured metrics
+--------------------------------------------------------------------
+              |   Joint Goals   |    Requested    |      Method    |
+--------------------------------------------------------------------
+Accuracy      |    0.7323162    |    0.9162437    |    0.5492372   |
+l2            |    0.4212595    |    0.1194034    |    0.7911165   |
+roc.v2_ca05   |    0.0000000    |    0.5623269    |    0.0000000   |
+\end{verbatim}
+
+Notice that focus tracking has yielded a significant improvement over all
+metrics of joint goals tracking performance. This is because the focus tracker's
+update rule
+
+\begin{equation}
+	p_{c,t}(v) = slu_{t,c}(v) + q_{c,t} p_{c,t-1}(v)
+\end{equation}
+
+incorperates evidence accumulated over prior dialogue terms through the $p_{c,t-1}(v)$
+term. This allows the belief state over joint goals to be estimated over the course
+of the dialogue rather than solely using information from that current turn (which is
+the case for the baseline tracker). As a result, the focus tracker improves tracking
+of joint goals belief state.
+
+However, notice that method tracking metrics have gotten worse. This suggests
+that it is better to predict the method using only information from the
+previous dialogue turn (as in the baseline model) than to accumulate belief
+over the entire dialogue. One explanation for this is that unlike goals, which
+should remain similar across multiple turns, the method is more likely to
+differ across turns.  For example, a user could give a constraint one turn
+(``by constraints'' method) and then issue a ``reqalts'' next turn (``by
+alternatives'' method). Since the method is more likely to change across turns,
+accumulating prior beliefs of the method over turns hurts the performance.
+
+One interesting discovery is that while focus tracking of the requested slot
+achieves analogous accuracy to baseline, its performance is below the performance of the
+focus tracker before implementation:
+\begin{verbatim}
+                                    featured metrics
+--------------------------------------------------------------------
+              |   Joint Goals   |    Requested    |      Method    |
+--------------------------------------------------------------------
+Accuracy      |    0.0097087    |    0.9365482    |    0.0000000   |
+l2            |    1.9805825    |    0.0922728    |    2.0000000   |
+roc.v2_ca05   |    0.0000000    |    0.0027100    |        -       |
+\end{verbatim}
+This can also be attributed to the focus tracker accumulating requested slot
+belief state over multiple dialogue turns while the requested slot
+is likely to change across turns. However, the magnitude of the performance
+difference is much smaller than in the case of method tracking, suggesting
+that the requested slot is less likely to change across turns than method.
+
+  \item
+    The code for goal tracking:
+    \lstinputlisting[firstnumber=338,firstline=338,lastline=343]{cued-python_practical/practical1_dst/scripts/baseline.py}
+		This block of code is run inside of a \texttt{for} loop over \texttt{slot}s.
+		We first set $p_{c,t}(v) = slu_{t,t}(v)$, and then if a prior $p_{c,t-1}(v)$ exists
+		then we weight it by $q_{c,t}$ and add it to $p_{c,t}(v)$.
+
+    The code for method tracking:
+    \lstinputlisting[firstnumber=354,firstline=354,lastline=358]{cued-python_practical/practical1_dst/scripts/baseline.py}
+		Unlike goal tracking, this code runs outside of any \texttt{for} loop. We compute
+		$q_t$ (the probability that SLU found no information about the method) and set the
+		method belief state $p_t(m)$ equal to the SLU estimate from the current
+		state (\texttt{method\_stats[method]}) as well as the previous belief state for method
+		$m$ (if it exists) weighted by $q_t$.
+
+    The code for requested slot tracking:
+    \lstinputlisting[firstnumber=376,firstline=376,lastline=381]{cued-python_practical/practical1_dst/scripts/baseline.py}
+		This code runs inside a \texttt{for} loop over \texttt{slot}s. Since each informed
+		slot entry \texttt{p} represents the Bernoulli probability a slot is requested, the probability
+		that the SLU found no information about \texttt{slot} being a requested is simply
+		\texttt{1 - p}. We update the requested slot belief state by clearing the requested
+		probability if the slot has been informed (and hence is no longer requested by the user)
+		and otherwise combining the SLU estimate \texttt{p} with the previous belief state
+		(if it exists) weighted by \texttt{q\_c\_t = 1 - p}.
+\end{enumerate}
+
+\end{document}
