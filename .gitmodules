@@ -1,0 +1,3 @@
+[submodule "cued-python_practical"]
+	path = cued-python_practical
+	url = https://github.com/feynmanliang/cued-python_practical

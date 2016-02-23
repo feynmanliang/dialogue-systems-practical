@@ -12,12 +12,12 @@ ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Nu))) +
 ```
 
 ```{r GP}
-data = read.csv("mcc-data.csv")
+data = read.csv("gp-data.csv")
 str(data)
 
-ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Nu))) +
+ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Kernel))) +
   geom_line() +
   scale_y_continuous() +
-  labs(title="MCC with Focus Tracker (r=0.15)",
-       x="Iterations", y="Average Success (Testing Set)", colour="Nu")
+  labs(title="GP with Focus Tracker (r=0.15)",
+       x="Iterations", y="Average Success (Testing Set)", colour="Kernel")
 ```

@@ -4,7 +4,6 @@
 *.fdb_latexmk
 *.out
 *.pdf
-cued-python_practical/
 .Rhistory
 .Rproj.user/
 .Rproj.user
