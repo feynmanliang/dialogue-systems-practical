@@ -1,15 +1,30 @@
 ```{r imports}
 library(ggplot2)
+library(dplyr)
 ```
 
 ```{r MCC}
-data = read.csv("mcc-data.csv")
-ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Nu))) +
+data.mcc = read.csv("mcc-data.csv")
+ggplot(data.mcc, aes(x=100*Iteration, y=Success.Mean, colour=factor(Nu),
+                     ymin=Success.Mean-Success.Std, ymax=Success.Mean+Success.Std)) +
   geom_line() +
+  geom_errorbar(width=20) +
   scale_y_continuous() +
   labs(title="MCC with Focus Tracker (r=0.15)",
-       x="Iterations", y="Average Success (Testing Set)", colour="Nu")
+       x="Iteration", y="Success (Testing Set)", colour="Nu")
 ```
+
+First coord of thetaFile is p, second coord is the sigma
+Expect Gaussian kernel to work better with good hyperparam
+j
+$$p \in [1,5]$$
+$$l \in [2,3]$$
+
+Linear kernel imposes strong correlation between different data points
+=> initially very fast learning because high correlations
+However, with proper settings of hyperparams Gauss kernel better fits true distr of data
+
+Mu trades off accuracy and computational complexity
 
 ```{r GP}
 data = read.csv("gp-data.csv")
@@ -20,4 +35,44 @@ ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Kernel))) +
   scale_y_continuous() +
   labs(title="GP with Focus Tracker (r=0.15)",
        x="Iterations", y="Average Success (Testing Set)", colour="Kernel")
+```
+
+```{r GP-gauss}
+data = read.csv("gp-gauss-data.csv")
+str(data)
+
+ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Kernel))) +
+  geom_line() +
+  scale_y_continuous() +
+  labs(title="GP with Focus Tracker (r=0.15)",
+       x="Iterations", y="Average Success (Testing Set)", colour="Kernel")
+```
+
+```{r all}
+data = read.csv("results-all-tidy.csv", na.strings = "--")
+#data <- data[11:nrow(data),] # drop really good performing linear kernel
+str(data)
+
+best.mcc = data.mcc[data.mcc$Nu == 0.01,]
+
+ggplot(
+  rbind(
+    data.frame("Kernel"="MCC (Nu=0.01)", best.mcc[,c("Iteration", "Success.Mean", "Success.Std")]),
+    data %>%
+      filter(Kernel %in% c(
+        "Linear (sigma=5)",
+        "Gaussian (p=4;l=2)",
+        "Gaussian (p=3;l=2)"
+      )) %>%
+      group_by(Kernel, Iteration) %>%
+      summarize(Success.Mean = Success.Mean[1], Success.Std = Success.Std[1])
+  ),
+  aes(x=100*Iteration, y=Success.Mean, colour=Kernel,
+      ymin=Success.Mean-Success.Std, ymax=Success.Mean+Success.Std)) +
+  scale_y_continuous() +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(width=20) +
+  labs(title="GP with Focus Tracker (r=0.15)",
+       x="Iteration", y="Success (Testing Set)", colour="")
 ```
