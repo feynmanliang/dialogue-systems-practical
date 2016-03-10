@@ -1,5 +1,6 @@
 \documentclass[a4paper,oneside,reqno]{amsart}
-\usepackage{pdfpages} % to include cover sheet
+\usepackage{csvsimple}
+\usepackage{longtable}
 
 \input{../../../cambridge-macros.tex}
 
@@ -19,12 +20,80 @@
 
 \maketitle
 
+\section{Introduction}
+
+Two critical components in a statistical spoken dialogue system
+are the dialogue state tracker and the dialogue policy. The dialogue
+
 \section{Focus dialogue state tracker}
 
-\subsection{Comparing performance of baseline vs focus tracker}
+The dialogue state denotes a concrete representation of what the user wants and
+evidence accumulated over the sequence of dialogue turns up to the current
+point. The dialogue state consists of goals (distributions over the values of
+each informable slot in the ontology), method (the way the user is trying to
+interact, one of $\{\text{by constraints}, \text{by name}, \text{by
+alternatives}, \text{finished}\}$), and requested slots (Bernoulli
+distributions over each requestable slot in the ontology).
+
+The role of the state tracker is to combine the previous belief state
+with the output from the spoken language understanding (SLU) to generate the
+next belief state.
+
+One way to track the dialogue state is to simply record the value with the
+highest SLU evidence score for each slot at each turn. We use this approach
+as a baseline to compare performance against. Note that the baseline tracker
+solely relies on the current dialogue turn's SLU evidence and ignores any prior
+belief state. As a user's intentions likely span across multiple dialogue
+turns, reusing information from prior turns may yield better performance. This
+observation motivates the focus state tracker.
+
+In the focus state tracker, the prior belief state $p_{c,t-1}(v)$ and current SLU
+evidence $slu_{t,c}(v)$ for a slot $c$ taking value $v$ are combined to
+generate  the current belief state $p_{c,t}(v)$ according to
+\begin{align}
+  q_{c,t} &= 1 - \sum_{v \in V_c} slu_{t,c}(v) \label{eq:q}\\
+  p_{c,t}(v) &= slut_{t,c}(v) + q_{c,t} p_{c,t-1}(v) \label{eq:pt}\\
+  p_{c,1}(v) &= slu_{1,c}(v) \label{eq:p0}
+\end{align}
+We can interpret $q_{c,t}$ as the probability the SLU did not find any evidence
+about slot $c$ in the most recent dialogue turn. When the SLU system is certain
+about slot $c$ (i.e. $\sum_{v \in V_c} slu_{t,c}(v) = 1$) then $q_{c,t} = 0$
+and $p_{c,t}(v) = slu_{t,c}(v)$ (\autoref{eq:pt}, the current belief is equal to
+the SLU evidence). As the SLU becomes less certain, $q_{c,t}$ increases and the
+contribution of the prior belief $p_{c,t-1}$ on the current belief increases.
+
+\subsection{Implementation}
+
+In \autoref{lst:focus-goal} we implement the focus tracker's
+belief state update rule (\autoref{eq:pt}) for goal tracking.
+
+\lstinputlisting[firstnumber=339,firstline=339,lastline=344,caption=Focus goal
+tracking,label=lst:focus-goal]{
+cued-python_practical/practical1_dst/scripts/baseline.py}
+
+In \autoref{lst:focus-method} we implement \autoref{eq:pt} for method tracking.
+Unlike goal tracking, which maintains a belief distribution over values for
+each slot and hence runs inside of a \texttt{for} loop over \texttt{slot}s),
+there is only a single distribution over all possible methods.
+
+\lstinputlisting[firstnumber=355,firstline=355,lastline=359,caption=Focus method
+tracking,label=lst:focus-method]{
+cued-python_practical/practical1_dst/scripts/baseline.py}
+
+\autoref{lst:focus-req} implements focus requested slot tracking. Since a slot
+is no longer requested after it has been informed, we set the score of all
+slots appearing in \texttt{informed\_slots} to be zero. For slots not appearing in
+\texttt{informed\_slots}, we combine the SLU evidence with the previous belief
+according to \autoref{eq:pt}.
+
+\lstinputlisting[firstnumber=377,firstline=377,lastline=385,caption=Requested
+slot tracking,label=lst:focus-req]{
+cued-python_practical/practical1_dst/scripts/baseline.py}
+
+\subsection{Performance comparison}
 
 We evaluate the performance of the baseline (\autoref{tab:baseline-tracker})
-and focus (\autoref{tab:focus-tracker} tracker on the DSTC \textbf{dtsc2\_data}
+and focus (\autoref{tab:focus-tracker}) tracker on the DSTC \textbf{dtsc2\_data}
 dataset.
 
 \begin{table}[ht!]
@@ -55,62 +124,63 @@ dataset.
   \label{tab:focus-tracker}
 \end{table}
 
-Notice that the focus tracker has improved performance in joint goals tracking.
-This is because the focus tracker's update rule
-\begin{align}
-  \label{eq:focus}
-  p_{c,t}(v) &= slu_{t,c}(v) + q_{c,t} p_{c,t-1}(v)
-\end{align}
-incorperates evidence accumulated over prior dialogue terms through the $p_{c,t-1}(v)$
-term, allowing the belief state over joint goals to be estimated over the course
-of the dialogue rather than solely using information from that current turn (which is
-the case for the baseline tracker).
+Notice that the focus tracker has improved performance across all metrics in
+joint goals tracking. Since the baseline tracker ignores past states and only
+uses the current state, it doesn't handle goal constraint changes well.  In
+contrast, the focus tracker's update rule \autoref{eq:pt} incorperates evidence
+accumulated over prior dialogue terms through the $p_{c,t-1}(v)$ term, allowing
+the belief state over joint goals to be estimated over the course of the
+dialogue rather than solely from that current turn.
 
-However, method tracking performance is worse in the focus tracker. This
-suggests that it is better to predict the method using only information from
-the previous dialogue turn (as in the baseline model) than to accumulate belief
-over the entire dialogue. One explanation for this is that unlike goals, which
-should remain similar across multiple turns, the method is more likely to
-differ across turns.  For example, a user could give a constraint one turn
-(``by constraints'' method) and then issue a ``reqalts'' next turn (``by
-alternatives'' method). Since the method is more likely to change across turns,
-accumulating prior beliefs of the method over turns hurts the performance.
+Requested slot tracking performance is similar, with identical accuracies
+and nearly identical l2 values.
 
-\subsection{Implementation}
+However, focus method tracking performance is below baseline. This suggests
+that it is better to predict the method using only information from the
+previous dialogue turn (as in the baseline model) than to accumulate belief
+over the entire dialogue. One interpretation is to view the focus tracker
+update rule (\autoref{eq:pt}) as an autoregressive model introducing a low-pass
+filtering of the SLU evidences. If the true method were indeed a high frequency
+signal (e.g.\ a user could give a constraint one turn (``by constraints''
+method) and then issue a ``reqalts'' next turn (``by alternatives'' method)),
+then this low-pass filtering would degrade performance.
 
-\autoref{lst:focus-goal} shows our implementation of the focus tracker for goal
-tracking. This code directly implements \autoref{eq:focus} and is run inside of
-a \texttt{for} loop over \texttt{slot}s.
+\section{Monte Carlo control algorithm}
 
-\lstinputlisting[firstnumber=339,firstline=339,lastline=344,caption=Focus goal
-tracking,label=lst:focus-goal]{
-cued-python_practical/practical1_dst/scripts/baseline.py}
+In addition to belief tracking, a statistical spoken dialogue system must also
+produce a response at each dialogue turn. We can view this in the context of
+reinforcement learning, whereby the belief state becomes the agent's state
+and the response the action taken by the agent at each turn.
 
-In \autoref{lst:focus-method}, we implement the focus tracker for method tracking.
-Unlike goal tracking, which maintains a belief distribution over values for each slot,
-there is only a single belief distribution over all methods so this code
-is not run inside of a \texttt{for} loop.
+One method for solving the reinforcement learning problem is Monte Carlo
+control (MCC).  MCC learns a $Q(b,a)$ function mapping belief states $b$ and
+actions (responsses) $a$ to the expected discounted return of taking action $a$
+in state $b$. At the end of each episode (dialogue), the average sample return
+is used to update the $Q$ function and the next episode utilizes the updated
+$Q$ function.
 
-\lstinputlisting[firstnumber=355,firstline=355,lastline=359,caption=Focus method
-tracking,label=lst:focus-method]{
-cued-python_practical/practical1_dst/scripts/baseline.py}
+To trade off between exploration of new policies and exploitation of the current
+estimate for $Q$, $\epsilon$-greedy action selection is used for episode generation.
+This results in the MCC algorithm exploiting the current estimate and greedily
+selecting actions maximizing $Q$ with probability $1 - \epsilon$ and exploring a random
+action with probability $\epsilon$.
 
-\autoref{lst:focus-req} shows our implementation of the focus tracker for
-requested slot tracking.  This code runs inside a \texttt{for} loop over
-\texttt{slot}s. We update the requested slot belief state by clearing the
-requested probability if the slot has been informed (and hence is no longer
-requested by the user) and otherwise combining the SLU estimate \texttt{p} with
-the previous belief state (if it exists) weighted by \texttt{q\_c\_t = 1 - p}
-(the probability that the SLU found no information about \texttt{slot} being
-requested this dialogue turn).
-
-\lstinputlisting[firstnumber=377,firstline=377,lastline=382,caption=Requested
-slot tracking,label=lst:focus-req]{
-cued-python_practical/practical1_dst/scripts/baseline.py}
-
-\section{Monte carlo policy}
+However, since there are uncountably many belief states $b \in \RR^n$ it is
+infeasible to store every possible $b$ when estimating $Q(b,a)$. One solution
+to this problem is sparsification, which only adds a new $Q(b,a)$ estimate if
+the distance between this $(b,a)$ pair and its nearest neighbor in the current
+$Q$ estimate is greater than some threshold $\nu$. Otherwise, the value of the
+nearest neighbor is updated using the sampled total return.
 
 \subsection{Performance of MCC policy}
+
+\autoref{fig:mcc} shows the average success per iteration for MCC policy using
+a focus belief tracker. Notice that when the sparsification threshold $\nu$ is
+set too high (e.g. $\geq 0.05$) there is a sharp drop in performance, with
+successes ranging in the $25-35$ range rather than the $50-65$ range achieved
+by lower $\nu$ runs. This decreased success is likely due to the effects of
+sparsification: setting $\nu$ too large results in lots of sparsification,
+resulting in an oversmoothed estimate of $Q$.
 
 \begin{figure}[ht!]
   \begin{center}
@@ -120,20 +190,114 @@ cued-python_practical/practical1_dst/scripts/baseline.py}
   \label{fig:mcc}
 \end{figure}
 
-\subsection{Implementation}
-
-\lstinputlisting[firstnumber=249,firstline=249,lastline=269,caption=MCC
-policy update,label=lst:mcc]{cued-python_practical/policy/MCCPolicy.py}
-
-\lstinputlisting[firstnumber=364,firstline=364,lastline=367,caption=MCC epsilon
-greedy action
-selection,label=lst:mcc-action]{cued-python_practical/policy/MCCPolicy.py}
+While lower value of $\nu$ improve success, they also increase the number of
+grid points used in estimating $Q$. This increases the memory required to store
+$Q$ as well as the computational complexity of evaluating $Q$ for a new point.
+Furthermore, a sparse grid is a more restrictive model class than a dense
+grid. Hence, $\nu$ may also be interpreted as a form of regularization so setting
+$\nu$ too low may decrease generalization performance.
 
 \section{GP-SARSA policy}
 
+In MCC, the $Q$ function is represented by nearest-neighbor regression over a
+grid of points.  This assumes that $Q$ is piecewise constant. Relaxing this
+restrictive modeling assumption motivates GP-SARSA.
+
+In GP-SARSA, the $Q$ function is modeled as a Gaussian process with mean $0$
+and covariance kernel $k(\cdot,\cdot)$. Two kernels that we investigate include
+linear
+\[
+  k((\vec{b},a),(\vec{b}',a')) = \langle \vec{b}, \vec{b}'\rangle \delta_a(a')
+\]
+and Gaussian
+\[
+  k((\vec{b},a),(\vec{b}',a')) = p^2 \exp\left( -\frac{\|\vec{b} - \vec{b}'\|^2}{2l^2} \right) \delta_a(a')
+\]
+kernels. Notice that both kernels include $\delta_a(a')$ which effectively removes any
+covariance between $(\vec{b},a)$ pairs from different actions. Given a fixed action $a$,
+the covariance across belief states $\vec{b}$ are given by the current $(\vec{b},a)$ pairs
+and the covariance kernel $k(\cdot, \cdot)$.
+
+The two kernel functions have different implications. A linear kernel explicitly accounts
+for collinearity and will always yield $0$ for orthogonal beliefs $\vec{b}$ and $\vec{b}'$
+regardless of how small $\|\vec{b} - \vec{b}'\|$ may be. In contrast, a Gaussian kernel
+does not measure collinearity but instead directly uses the metric $\|\vec{b} - \vec{b}'\|$.
+
+The linear kernel assumes that covariances are generated from inner products. Since the belief
+state is a concatenation of probability vectors, its norm is constrained and hence
+we can interpret the inner products as correlations or angles between two belief vectors. Whether
+angle is a good way to measure similarity of beliefs is unclear. In particular, it assumes
+that antipodal belif states should be negatively correlated. This is true if $Q$ itself is linear,
+but may unnecesarrily restrict modeling if $Q$ is non-linear.
+
+The Gaussian kernel effectively acts as a kernel smoother with Gaussians
+centered at each of the dictionary points. This makes the much weaker modeling
+assumption that points close in $\ell_2$ distance should have higher covariance
+(i.e.\ be more similar).  Rather than making a global assumption such as $Q$
+being linear, Guassian kernels only assume that $Q$ varies smoothly. Note that
+the choice of variance $p$ and length scale $l$ need to be selected
+appropriately, otherwise the Gaussian kernels may result in an
+over/under-smoothed model with too little/much noise.
+
+One interesting idea would be to use a more appropriate norm than $\ell_2$ for
+defininng kernels. Belief states $\vec{b}$ consist of the concatenation of
+multiple probability vectors (e.g.\ discrete distributions over values for each
+slot and methods, Bernoulli distribution for each requestable slot) and are
+hence highly constrained. Measuring the distance between two belief states
+could instead use the KL-divergences between all the involved distributions
+rather than $\ell_2$, which ignores any of these constraints.
+
+Similar to MCC, GP-SARSA also requires memorizing previously seen $(b,a)$ pairs
+in order to compute an estimate for $Q$. To limit computational complexity,
+sparsification with respect to some threshold $\nu$ is also used. A point
+$(b^t, a^t)$ is added to the dictionary only if the approximate linear dependence condition
+\begin{equation}
+  \label{eq:ald}
+  \min_{\vec{g}_t}
+  \left\|
+  \sum_{j=0}^m \vec{g}_{t,j} \phi(\tilde{b}^j, \tilde{a}^j) - \phi(b^t, a^t)
+  \right\|^2
+  < \nu
+\end{equation}
+
+Note that the left hand side is equivalent to the squared norm of the
+orthogonal projection and hence will be equal to $0$ if $(b^t, a^t)$ is in the
+kernel span (column span of Gram matrix $\tilde{\matr{K}}$). In particular, this implies
+that a new dictionary point is added only if it is linearly independent from
+the existing points and that the dictionary will grow no greater than the
+feature vector dimensionality ($\dim \phi(\vec{b},a)$). For linear kernels,
+this ensures that the dictionary size is upper bounded by $\dim \phi(\vec{b},a)
+= \dim \vec{b}$. However, this bound is less useful for Gaussian kernels (aka radial
+basis functions) where the corresponding feature space is infinite dimensional.
+
+The ALD criterion makes sense because kernel functions are used in the ``kernel trick''
+to efficiently evaluate high dimensional inner products, i.e.
+\[
+  k((b,a),(b',a')) = \langle \phi(b,a), \phi(b',a') \rangle
+\]
+where $\phi(b,a)$ is a (possibly high-dimensional) feature vector. If ALD
+is satisfied, i.e.
+\[
+  \phi(b^t, a^t) \approx \sum_{j=0}^m \vec{g}_{t,j} \phi(\tilde{b}^j, \tilde{a}^j)
+\]
+then by bilinearity of inner product
+\begin{align}
+  k((b^t, a^t), (b', a'))
+  &= \langle \phi(b^t, a^t), \phi(b', a') \rangle\\
+  &\approx \langle \sum_{j=0}^m \vec{g}_{t,j} \phi(\tilde{b}^j, \tilde{a}^j), \phi(b', a') \rangle\\
+  &= \sum_{j=0}^m \vec{g}_{t,j} \langle \phi(\tilde{b}^j, \tilde{a}^j), \phi(b', a') \rangle\\
+  &= \sum_{j=0}^m \vec{g}_{t,j} k((\tilde{b}^j, \tilde{a}^j), (b', a'))
+\end{align}
+so the kernel function can be approximated by the existing dictionary points
+$(\tilde{b}^j, \tilde{a}^j)$.
+
+
 \subsection{Performance of GP-SARSA}
 
-We compare the best MCC policy against GP-SARSA in TODO.
+\autoref{fig:gp} compares the best MCC policy ($\nu=0.01$) against GP-SARSA
+using both linear and Gaussian kernels. Both policies were ran using a focus
+belief tracker. We found that almost all GP-SARSA policies achieved graeter
+success than the MCC policy.
 
 \begin{figure}[ht!]
   \begin{center}
@@ -143,10 +307,29 @@ We compare the best MCC policy against GP-SARSA in TODO.
   \label{fig:gp}
 \end{figure}
 
+For GP-SARSA policies, we found that performance of Gaussian kernels can
+exceed the performance of the linear kernel, but that doing so required
+careful selection of the parameters $p$ and $l$. We tried a grid of
+parameters with $p \in \{2,3,4,5\}$ and $l \in \{2,3,4\}$ and report
+the linear kernel and top two Gaussian kernel results in \autoref{fig:gp}.
+For full results, see \autoref{tab:gp}.
 
-\subsection{Implementation}
+\subsection{Conclusion}
 
-\lstinputlisting[firstnumber=597,firstline=597,lastline=609,caption=GP-SARSA
-spaarsification criterion check,label=lst:gp]{cued-python_practical/policy/GPLib.py}
+\appendix
+
+\section{Tables}
+
+\begin{table}
+  \csvreader[longtable=llll,
+    table head=\toprule Kernel & Iteration & Success.Mean & Success.Std\\\midrule,
+  table foot=\bottomrule]%
+  {results-all-tidy-report.csv}{1=\kernel,2=\iter,3=\mean,4=\std}%
+  {\kernel & \iter & \mean & \std }%
+  \caption{Results from all GP-SARSA experiments}
+  \label{tab:gp}
+\end{table}
+
+\section{Code}
 
 \end{document}
