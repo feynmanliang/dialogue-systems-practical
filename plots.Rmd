@@ -50,7 +50,6 @@ ggplot(data, aes(x=100*Iteration, y=Success.Mean, colour=factor(Kernel))) +
 
 ```{r all}
 data = read.csv("results-all-tidy.csv", na.strings = "--")
-#data <- data[11:nrow(data),] # drop really good performing linear kernel
 str(data)
 
 best.mcc = data.mcc[data.mcc$Nu == 0.01,]
@@ -75,4 +74,12 @@ ggplot(
   geom_errorbar(width=20) +
   labs(title="GP with Focus Tracker (r=0.15)",
        x="Iteration", y="Success (Testing Set)", colour="")
+
+write.csv(
+    data %>%
+      na.omit() %>%
+      group_by(Kernel, Iteration) %>%
+      summarize(Success.Mean = Success.Mean[1], Success.Std = Success.Std[1]),
+    file="results-all-tidy-report.csv",
+    row.names = F)
 ```
